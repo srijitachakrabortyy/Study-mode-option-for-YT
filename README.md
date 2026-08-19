@@ -5,29 +5,6 @@
 📄 **[Read Full Product Requirement Document (PRD.md)](PRD.md)**  
 🌐 **Deployable to Vercel in 1-Click with Zero Configuration**
 
----
-
-## ⚡ Vercel Deployment Guide
-
-Deploy YouTube Study Mode instantly to **Vercel** with automatic Serverless API Functions!
-
-### Option A: Deploy via Vercel CLI (Recommended)
-```bash
-# 1. Install Vercel CLI globally (if not already installed)
-npm install -g vercel
-
-# 2. Deploy directly from your project directory
-vercel
-```
-
-### Option B: Deploy via GitHub / Vercel Web Dashboard
-1. Push this repository to **GitHub**.
-2. Go to **[vercel.com/new](https://vercel.com/new)** and import your repository.
-3. Vercel will automatically detect `vercel.json`, build the Vite static frontend (`dist/`), and deploy `api/index.js` as Serverless Functions!
-4. Click **Deploy**!
-
----
-
 ## 🚨 Problem Statement Overview
 
 Competitive exam aspirants (preparing for **JEE Main & Advanced, UPSC CSE, NEET, GATE, SSC, CAT**) heavily rely on YouTube Desktop for high-yield lecture series, concept revisions, and past-year question (PYQ) walkthroughs.
