@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "YouTube Study Mode - Aspirant Recommendation Tuning",
+  "version": "1.0.0",
+  "description": "Modifies YouTube recommendations to enforce strict syllabus vector matching and hide clickbait distractions for exam aspirants.",
+  "permissions": ["storage", "activeTab"],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.youtube.com/*"],
+      "js": ["contentScript.js"],
+      "css": ["styles.css"],
+      "run_at": "document_end"
+    }
+  ]
+}

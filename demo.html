@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YouTube Study Mode | Vercel Deployment</title>
+  
+  <!-- Tailwind CSS & Official YouTube Font (Roboto) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=YouTube+Sans:wght@700;800;900&display=swap" rel="stylesheet">
+  
+  <!-- React & Babel CDNs -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- Canvas Confetti CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.4/dist/confetti.browser.min.js"></script>
+
+  <style>
+    body {
+      background-color: #0f0f0f;
+      color: #f1f1f1;
+      font-family: 'Roboto', Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      overflow-x: hidden;
+    }
+
+    .yt-font-bold {
+      font-family: 'YouTube Sans', 'Roboto', sans-serif;
+      font-weight: 700;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fade-in {
+      animation: fadeIn 0.25s cubic-bezier(0, 0, 0.2, 1) forwards;
+    }
+
+    .yt-search-input-box:focus-within {
+      border-color: #1c62b9;
+      box-shadow: inset 0 1px 2px rgba(0,0,0,0.4);
+    }
+
+    .yt-main-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 24px 16px;
+    }
+
+    .yt-chip-btn {
+      background-color: #272727;
+      color: #f1f1f1;
+      font-size: 14px;
+      font-weight: 500;
+      padding: 6px 14px;
+      border-radius: 8px;
+      white-space: nowrap;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .yt-chip-btn:hover {
+      background-color: #3f3f3f;
+    }
+    .yt-chip-btn.active {
+      background-color: #f1f1f1;
+      color: #0f0f0f;
+      font-weight: 600;
+    }
+
+    .yt-card-thumb img {
+      transition: transform 0.2s cubic-bezier(0,0,0.2,1), border-radius 0.2s ease;
+    }
+    .yt-card-thumb:hover img {
+      border-radius: 0px !important;
+      transform: scale(1.03);
+    }
+
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #0f0f0f; }
+    ::-webkit-scrollbar-thumb { background: #3f3f3f; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    // Dynamic API URL for Local Server and Vercel Production Deployment
+    const BACKEND_API_URL = window.location.origin.includes('5050') || window.location.origin.includes('8080') || window.location.origin.includes('3000') || window.location.origin.includes('5173')
+      ? 'http://127.0.0.1:5050/api'
+      : `${window.location.origin}/api`;
+
+    function App() {
+      const [studyMode, setStudyMode] = useState(true);
+      const [selectedExam, setSelectedExam] = useState('jee');
+      const [strictness, setStrictness] = useState(90);
+      const [searchQuery, setSearchQuery] = useState('');
+      const [activeTab, setActiveTab] = useState('feed');
+      const [activeVideo, setActiveVideo] = useState(null);
+      const [sidebarOpen, setSidebarOpen] = useState(true);
+      const [activeChip, setActiveChip] = useState('All');
+      const [useNativePlayer, setUseNativePlayer] = useState(true);
+      
+      // Strict Date Lock States
+      const [targetDate, setTargetDate] = useState('2026-05-15');
+      const [isDateLocked, setIsDateLocked] = useState(true);
+      const [daysLeft, setDaysLeft] = useState(87);
+
+      // Backend Synced States
+      const [videos, setVideos] = useState([]);
+      const [examsList, setExamsList] = useState([]);
+      const [backendOnline, setBackendOnline] = useState(false);
+      const [userNotes, setUserNotes] = useState([]);
+      const [newNoteText, setNewNoteText] = useState('');
+      const [analytics, setAnalytics] = useState({
+        studyHoursTotal: 42.5,
+        distractionsBlockedTotal: 148,
+        studyStreakDays: 7,
+        focusScore: 96
+      });
+
+      const [timerSeconds, setTimerSeconds] = useState(25 * 60);
+      const [timerActive, setTimerActive] = useState(false);
+
+      const chips = ['All', 'Physics', 'Chemistry', 'Rotational Motion', 'PYQ Walks', 'Calculus', 'Laxmikanth'];
+
+      useEffect(() => {
+        if (!targetDate) return;
+        const examTime = new Date(targetDate).getTime();
+        const now = new Date().getTime();
+        const diff = Math.ceil((examTime - now) / (1000 * 60 * 60 * 24));
+        setDaysLeft(diff > 0 ? diff : 0);
+      }, [targetDate]);
+
+      const handleToggleDateLock = (newLockState) => {
+        setIsDateLocked(newLockState);
+        if (newLockState) setStudyMode(true);
+
+        fetch(`${BACKEND_API_URL}/lock-date`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ targetDate: targetDate, isActive: newLockState })
+        }).catch(() => {});
+      };
+
+      // Fetch Supported Exams Taxonomy
+      useEffect(() => {
+        fetch(`${BACKEND_API_URL}/exams`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.success && data.exams) setExamsList(data.exams);
+          })
+          .catch(() => {});
+      }, []);
+
+      // Fetch Recommendations from Backend
+      useEffect(() => {
+        let isMounted = true;
+        fetch(`${BACKEND_API_URL}/recommendations`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            examId: selectedExam,
+            studyMode: isDateLocked ? true : studyMode,
+            strictness: strictness,
+            searchQuery: searchQuery
+          })
+        })
+        .then(res => res.json())
+        .then(data => {
+          if (isMounted && data.success) {
+            setBackendOnline(true);
+            let fetched = data.videos || [];
+            if (activeChip !== 'All') {
+              fetched = fetched.filter(v => 
+                (v.subject && v.subject.toLowerCase().includes(activeChip.toLowerCase())) ||
+                (v.title && v.title.toLowerCase().includes(activeChip.toLowerCase()))
+              );
+            }
+            setVideos(fetched);
+          }
+        })
+        .catch(() => {
+          if (isMounted) setBackendOnline(false);
+        });
+
+        return () => { isMounted = false; };
+      }, [selectedExam, studyMode, isDateLocked, strictness, searchQuery, activeChip]);
+
+      // Fetch Active Video Notes
+      useEffect(() => {
+        if (!activeVideo) return;
+        fetch(`${BACKEND_API_URL}/notes/${activeVideo.id}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.success) setUserNotes(data.notes || []);
+          })
+          .catch(() => {});
+      }, [activeVideo]);
+
+      // Fetch Analytics
+      useEffect(() => {
+        fetch(`${BACKEND_API_URL}/analytics`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.success && data.analytics) {
+              setAnalytics(data.analytics);
+              if (data.analytics.targetLockDate) setTargetDate(data.analytics.targetLockDate);
+              if (data.analytics.isLockActive !== undefined) setIsDateLocked(data.analytics.isLockActive);
+            }
+          })
+          .catch(() => {});
+      }, []);
+
+      // Pomodoro Timer Effect
+      useEffect(() => {
+        let interval = null;
+        if (timerActive && timerSeconds > 0) {
+          interval = setInterval(() => setTimerSeconds(s => s - 1), 1000);
+        } else if (timerSeconds === 0 && timerActive) {
+          setTimerActive(false);
+          confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } });
+
+          fetch(`${BACKEND_API_URL}/analytics/session`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ durationMinutes: 25, examId: selectedExam })
+          })
+          .then(res => res.json())
+          .then(data => {
+            if (data.success && data.analytics) setAnalytics(data.analytics);
+          });
+        }
+        return () => clearInterval(interval);
+      }, [timerActive, timerSeconds, selectedExam]);
+
+      const handleAddNote = (e) => {
+        e.preventDefault();
+        if (!newNoteText.trim() || !activeVideo) return;
+
+        fetch(`${BACKEND_API_URL}/notes`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ videoId: activeVideo.id, text: newNoteText.trim(), time: '12:00' })
+        })
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && data.notes) {
+            setUserNotes(data.notes);
+            setNewNoteText('');
+          }
+        });
+      };
+
+      const formatTime = (sec) => {
+        const m = Math.floor(sec / 60);
+        const s = sec % 60;
+        return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+      };
+
+      return (
+        <div className="min-h-screen flex flex-col bg-[#0f0f0f] text-[#f1f1f1]">
+          
+          {/* HEADER BAR */}
+          <header className="sticky top-0 z-50 h-14 bg-[#0f0f0f]/95 backdrop-blur-md px-4 flex items-center justify-between border-b border-[#272727]">
+            <div className="flex items-center gap-4">
+              <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-2 hover:bg-[#272727] rounded-full text-white transition-colors">
+                <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
+              </button>
+
+              <div className="flex items-center gap-1 cursor-pointer group" onClick={() => { setActiveVideo(null); setActiveTab('feed'); }}>
+                <svg height="20" viewBox="0 0 28 20" width="28">
+                  <path d="M27.9727 3.12324C27.6435 1.89112 26.6747 0.922333 25.4426 0.593122C23.2056 0 14 0 14 0C14 0 4.7944 0 2.5574 0.593122C1.32528 0.922333 0.356494 1.89112 0.0272827 3.12324C0 5.36024 0 10 0 10C0 10 0 14.6398 0.0272827 16.8768C0.356494 18.1089 1.32528 19.0777 2.5574 19.4069C4.7944 20 14 20 14 20C14 20 23.2056 20 25.4426 19.4069C26.6747 19.0777 27.6435 18.1089 27.9727 16.8768C28 14.6398 28 10 28 10C28 10 28 5.36024 27.9727 3.12324Z" fill="#FF0000"/>
+                  <path d="M11.2 14.2857L18.4 10L11.2 5.71429V14.2857Z" fill="white"/>
+                </svg>
+                <span className="yt-font-bold text-xl tracking-tighter text-white group-hover:text-red-500 transition-colors">YouTube</span>
+                <span className="text-[10px] text-gray-400 font-medium ml-0.5">IN</span>
+                
+                {/* Dynamic Mode & Lock Badge */}
+                {isDateLocked ? (
+                  <div className="ml-3 px-3 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1.5 shadow-md">
+                    <span>🔒 STRICT EXAM LOCK ({daysLeft} DAYS LEFT)</span>
+                  </div>
+                ) : (
+                  <div className={`ml-3 px-2.5 py-0.5 rounded-full text-[11px] font-bold flex items-center gap-1 transition-all ${studyMode ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-red-500/15 text-red-400 border border-red-500/30'}`}>
+                    <span className="w-2 h-2 rounded-full animate-pulse bg-current"></span>
+                    <span>STUDY MODE {studyMode ? 'ON' : 'OFF'}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Search Input */}
+            <div className="relative flex items-center flex-1 max-w-[680px] mx-4">
+              <div className="flex w-full yt-search-input-box bg-[#121212] border border-[#303030] rounded-l-full overflow-hidden">
+                <input 
+                  type="text" 
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search exam syllabus topics..." 
+                  className="w-full bg-transparent px-4 py-2 text-sm text-white outline-none"
+                />
+              </div>
+              <button className="bg-[#222222] border border-l-0 border-[#303030] rounded-r-full px-6 py-2 hover:bg-[#272727] text-gray-300 transition-colors">
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+              </button>
+            </div>
+
+            {/* Controls */}
+            <div className="flex items-center gap-3">
+              <select 
+                value={selectedExam} onChange={(e) => setSelectedExam(e.target.value)}
+                className="bg-[#272727] text-white text-xs font-semibold px-3 py-1.5 rounded-full border border-white/10 outline-none cursor-pointer hover:bg-[#3f3f3f] transition-colors"
+              >
+                {examsList.length > 0 ? (
+                  examsList.map(e => <option key={e.id} value={e.id}>{e.icon} {e.name}</option>)
+                ) : (
+                  <>
+                    <option value="jee">⚡ JEE Main & Advanced</option>
+                    <option value="upsc">🏛️ UPSC CSE</option>
+                  </>
+                )}
+              </select>
+
+              <button 
+                disabled={isDateLocked}
+                onClick={() => setStudyMode(!studyMode)}
+                className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 ${isDateLocked ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 cursor-not-allowed' : studyMode ? 'bg-emerald-400 text-black shadow-lg shadow-emerald-500/20' : 'bg-[#272727] text-gray-300'}`}
+              >
+                <span>{isDateLocked ? '🔒 LOCKED ON' : studyMode ? 'STUDY MODE ON' : 'STUDY MODE OFF'}</span>
+              </button>
+
+              <div className="w-8 h-8 rounded-full bg-emerald-500 text-black font-bold flex items-center justify-center text-sm shadow-md">
+                A
+              </div>
+            </div>
+          </header>
+
+          <div className="flex flex-1">
+            
+            {/* SIDEBAR */}
+            {sidebarOpen && (
+              <aside className="w-64 bg-[#0f0f0f] border-r border-[#272727] p-3 flex flex-col gap-1 text-sm text-gray-200 animate-fade-in">
+                <div onClick={() => { setActiveVideo(null); setActiveTab('feed'); }} className={`flex items-center gap-5 px-3 py-2.5 rounded-xl cursor-pointer font-medium transition-colors ${activeTab === 'feed' && !activeVideo ? 'bg-[#272727]' : 'hover:bg-[#272727]'}`}>
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+                  <span>Home</span>
+                </div>
+
+                <div className={`flex items-center gap-5 px-3 py-2.5 rounded-xl cursor-pointer font-medium transition-colors ${studyMode || isDateLocked ? 'opacity-40' : 'hover:bg-[#272727]'}`}>
+                  <svg className="w-5 h-5 text-red-500" fill="currentColor" viewBox="0 0 24 24"><path d="M17.77 10.32l-1.2-.5L18 9.06c1.84-.96 2.53-3.23 1.56-5.07s-3.24-2.53-5.07-1.56L6 6.94c-1.29.68-2.07 2.04-2 3.49.07 1.42.93 2.67 2.22 3.25l1.2.5L6 14.94c-1.84.96-2.53 3.23-1.56 5.07s3.24 2.53 5.07 1.56l8.44-4.5c1.29-.68 2.07-2.04 2-3.49-.07-1.42-.93-2.67-2.18-3.26zM10 14.5v-5l4.5 2.5-4.5 2.5z"/></svg>
+                  <span>Shorts</span>
+                  {(studyMode || isDateLocked) && <span className="ml-auto text-[9px] bg-red-600 text-white font-bold px-1.5 py-0.5 rounded">BLOCKED</span>}
+                </div>
+
+                <div className="my-2 border-t border-[#272727]"></div>
+
+                {/* TARGET EXAM DATE LOCK PANEL */}
+                <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-2.5">
+                  <div className="font-bold text-xs text-amber-400 flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <span>⏳</span> STRICT DATE LOCK TIMER
+                    </span>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] text-gray-400 font-bold uppercase block mb-1">Target Exam Date</label>
+                    <input 
+                      type="date" 
+                      value={targetDate} 
+                      onChange={(e) => setTargetDate(e.target.value)}
+                      className="w-full bg-[#121212] border border-amber-500/40 text-xs text-amber-300 rounded px-2.5 py-1.5 outline-none"
+                    />
+                  </div>
+
+                  <div className="bg-[#121212] p-2 rounded border border-amber-500/20 flex items-center justify-between">
+                    <span className="text-xs font-mono font-bold text-amber-400">{daysLeft} Days Left</span>
+                    <button 
+                      onClick={() => handleToggleDateLock(!isDateLocked)}
+                      className={`px-3 py-1 rounded text-xs font-bold transition-all ${isDateLocked ? 'bg-amber-500 text-black' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
+                    >
+                      {isDateLocked ? '🔒 STRICT LOCK ACTIVE' : 'Unlock Date'}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="my-1 border-t border-[#272727]"></div>
+
+                {/* STUDY MODE CONTROLS */}
+                <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl space-y-2">
+                  <div className="font-bold text-xs text-emerald-400 flex items-center justify-between">
+                    <span>🎓 STUDY MODE CONTROLS</span>
+                  </div>
+
+                  <button onClick={() => { setActiveVideo(null); setActiveTab('dashboard'); }} className={`w-full text-left text-xs font-semibold px-2.5 py-2 rounded flex items-center gap-2 transition-colors ${activeTab === 'dashboard' ? 'bg-emerald-500/20 text-emerald-300' : 'text-gray-300 hover:bg-[#272727]'}`}>
+                    <span>🎯</span> Aspirant Focus Hub
+                  </button>
+
+                  <div className="pt-2 border-t border-white/10">
+                    <div className="text-[11px] text-gray-300 font-semibold mb-1 flex justify-between">
+                      <span>Focus Strictness</span>
+                      <span className="text-emerald-400">{strictness}%</span>
+                    </div>
+                    <input type="range" min="0" max="100" value={strictness} onChange={(e) => setStrictness(Number(e.target.value))} className="w-full accent-emerald-400 cursor-pointer" />
+                  </div>
+                </div>
+              </aside>
+            )}
+
+            {/* MAIN CONTENT AREA */}
+            <main className="flex-1 min-w-0">
+              
+              {/* CHIPS */}
+              {!activeVideo && activeTab === 'feed' && (
+                <div className="sticky top-14 z-40 bg-[#0f0f0f] px-6 py-3 border-b border-[#272727] flex items-center gap-3 overflow-x-auto">
+                  {chips.map((chip) => (
+                    <button 
+                      key={chip} 
+                      onClick={() => setActiveChip(chip)}
+                      className={`yt-chip-btn ${activeChip === chip ? 'active' : ''}`}
+                    >
+                      {chip}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {activeVideo ? (
+                /* WATCH PAGE */
+                <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-7xl mx-auto animate-fade-in">
+                  <div className="lg:col-span-2 space-y-4">
+                    
+                    <div className="flex items-center justify-between">
+                      <button onClick={() => setActiveVideo(null)} className="text-xs bg-[#272727] hover:bg-[#3f3f3f] px-3.5 py-2 rounded-lg text-gray-200 font-medium flex items-center gap-1.5 transition-colors">
+                        ← Back to YouTube Feed
+                      </button>
+
+                      <div className="flex items-center gap-2">
+                        <button 
+                          onClick={() => setUseNativePlayer(!useNativePlayer)}
+                          className="text-xs bg-gray-800 hover:bg-gray-700 text-gray-200 px-3 py-2 rounded-full font-semibold border border-white/10 transition-colors"
+                        >
+                          {useNativePlayer ? '📺 HTML5 Stream Mode' : '🌐 YouTube Iframe Mode'}
+                        </button>
+
+                        <a 
+                          href={activeVideo.watchUrl} 
+                          target="_blank" 
+                          rel="noreferrer"
+                          className="text-xs bg-red-600 hover:bg-red-700 font-bold text-white px-4 py-2 rounded-full flex items-center gap-2 shadow-lg shadow-red-600/40 transition-colors"
+                        >
+                          <span>Open on YouTube.com ↗</span>
+                        </a>
+                      </div>
+                    </div>
+
+                    <div className="relative w-full aspect-video bg-black rounded-xl overflow-hidden shadow-2xl border border-[#272727] group">
+                      {useNativePlayer ? (
+                        <div className="relative w-full h-full bg-black flex flex-col justify-between">
+                          <video 
+                            src={activeVideo.videoStreamUrl || 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4'} 
+                            controls 
+                            autoPlay 
+                            poster={activeVideo.thumbnail}
+                            className="w-full h-full object-cover"
+                          />
+                          <div className="absolute top-3 left-3 bg-emerald-500 text-slate-950 font-extrabold text-[11px] px-3 py-1 rounded-full shadow-lg">
+                            ✨ High Syllabus Match • Study Stream
+                          </div>
+                        </div>
+                      ) : (
+                        <iframe 
+                          src={`https://www.youtube.com/embed/${activeVideo.youtubeId}?autoplay=1&modestbranding=1&rel=0`} 
+                          className="w-full h-full border-0" 
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                          allowFullScreen 
+                          title={activeVideo.title} 
+                        />
+                      )}
+                    </div>
+
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded font-bold">
+                          {activeVideo.subject || 'Physics'}: {activeVideo.topic || 'Syllabus Topic'}
+                        </span>
+                        <span className="text-xs text-emerald-400 font-bold">
+                          ✨ Syllabus Aligned
+                        </span>
+                      </div>
+
+                      <h1 className="text-xl font-bold leading-snug">{activeVideo.title}</h1>
+                      
+                      <div className="flex items-center justify-between mt-3 pb-4 border-b border-[#272727]">
+                        <div className="flex items-center gap-3">
+                          <img src={activeVideo.avatar} className="w-10 h-10 rounded-full object-cover" />
+                          <div>
+                            <div className="text-sm font-bold">{activeVideo.channel}</div>
+                            <div className="text-xs text-gray-400">{activeVideo.views} • {activeVideo.timeAgo}</div>
+                          </div>
+                        </div>
+
+                        <a 
+                          href={activeVideo.watchUrl} 
+                          target="_blank" 
+                          rel="noreferrer"
+                          className="bg-red-600 text-white font-bold text-xs px-4 py-2 rounded-full hover:bg-red-700 transition-colors shadow-lg shadow-red-600/30"
+                        >
+                          Open directly on YouTube ↗
+                        </a>
+                      </div>
+                    </div>
+
+                    <div className="bg-[#18181f] p-4 rounded-xl border border-emerald-500/30">
+                      <h3 className="font-bold text-sm text-emerald-400 mb-2">💡 Key Syllabus Takeaways</h3>
+                      <p className="text-xs text-gray-300 leading-relaxed mb-3">
+                        {activeVideo.summary || 'Walkthrough of key derivations, rotational motion moment of inertia tensors, and 10-year PYQ solutions.'}
+                      </p>
+                    </div>
+
+                  </div>
+
+                  {/* Timestamp Notes */}
+                  <div className="space-y-6">
+                    <div className="bg-[#18181f] p-4 rounded-xl border border-emerald-500/30">
+                      <h3 className="font-bold text-xs text-emerald-400 mb-3 uppercase tracking-wider flex items-center justify-between">
+                        <span>📌 Timestamp Notes & Formulas</span>
+                        <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded font-bold">Saved</span>
+                      </h3>
+
+                      <div className="space-y-2 max-h-48 overflow-y-auto mb-3">
+                        {userNotes.length > 0 ? (
+                          userNotes.map((n) => (
+                            <div key={n.id} className="bg-[#0f0f0f] p-2.5 rounded border-l-2 border-emerald-400 text-xs animate-fade-in">
+                              <span className="text-emerald-400 font-bold bg-emerald-400/10 px-1.5 py-0.5 rounded mr-2">{n.time}</span>
+                              <span className="text-gray-200">{n.text}</span>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="text-xs text-gray-500 italic p-2">No notes added for this lecture yet.</div>
+                        )}
+                      </div>
+
+                      <form onSubmit={handleAddNote} className="flex gap-2">
+                        <input 
+                          type="text" placeholder="Add lecture note..." 
+                          value={newNoteText} onChange={(e) => setNewNoteText(e.target.value)}
+                          className="flex-1 bg-[#0f0f0f] border border-white/15 text-xs rounded px-2.5 py-1.5 text-white outline-none"
+                        />
+                        <button type="submit" className="bg-emerald-400 text-black text-xs font-bold px-3 py-1.5 rounded hover:bg-emerald-300 transition-colors">Add</button>
+                      </form>
+                    </div>
+
+                    <div>
+                      <h3 className="font-bold text-sm mb-3">Syllabus-Matched Next Lectures</h3>
+                      <div className="space-y-3">
+                        {videos.map(v => (
+                          <div key={v.id} className="bg-[#18181f] p-2 rounded-lg flex gap-3 border border-white/5 hover:border-emerald-500/30 transition-all">
+                            <div className="w-[168px] h-[94px] flex-shrink-0 rounded-lg overflow-hidden relative cursor-pointer" onClick={() => setActiveVideo(v)}>
+                              <img 
+                                src={v.thumbnail} 
+                                className="w-full h-full object-cover hover:scale-105 transition-transform" 
+                              />
+                              <span className="absolute bottom-1 right-1 bg-black/80 text-white text-[10px] px-1 py-0.5 rounded font-mono">
+                                {v.duration}
+                              </span>
+                            </div>
+
+                            <div className="flex-1 min-w-0 flex flex-col justify-between py-0.5">
+                              <div>
+                                <div onClick={() => setActiveVideo(v)} className="text-xs font-semibold text-white line-clamp-2 cursor-pointer hover:text-emerald-400 leading-snug">
+                                  {v.title}
+                                </div>
+                                <div className="text-[11px] text-gray-400 mt-1">{v.channel}</div>
+                              </div>
+                              <a href={v.watchUrl} target="_blank" rel="noreferrer" className="text-[10px] text-red-400 font-bold hover:underline block">
+                                Open on YouTube ↗
+                              </a>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+              ) : activeTab === 'dashboard' ? (
+                /* Focus Dashboard */
+                <div className="p-6 max-w-6xl mx-auto space-y-6 animate-fade-in">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <h1 className="text-2xl font-bold brand-font">Aspirant Focus Hub & Analytics</h1>
+                      <p className="text-xs text-gray-400 mt-1">Study Hours, Streak Counters & Exam Date Lock</p>
+                    </div>
+                    <button onClick={() => setActiveTab('feed')} className="text-xs bg-[#272727] px-3 py-1.5 rounded text-gray-300 hover:bg-[#383838]">
+                      ← Back to Feed
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div className="bg-[#18181f] p-4 rounded-xl border border-amber-500/30">
+                      <div className="text-xs text-amber-400 font-bold">Target Exam Date</div>
+                      <div className="text-2xl font-bold text-white mt-1">{targetDate}</div>
+                      <div className="text-[11px] text-amber-300 mt-1">{daysLeft} Days Countdown</div>
+                    </div>
+                    <div className="bg-[#18181f] p-4 rounded-xl border border-white/5">
+                      <div className="text-xs text-gray-400">Study Streak</div>
+                      <div className="text-2xl font-bold text-amber-400 mt-1">{analytics.studyStreakDays} Days</div>
+                      <div className="text-[11px] text-gray-400 mt-1">Active Study Mode</div>
+                    </div>
+                    <div className="bg-[#18181f] p-4 rounded-xl border border-white/5">
+                      <div className="text-xs text-gray-400">Study Hours</div>
+                      <div className="text-2xl font-bold text-white mt-1">{analytics.studyHoursTotal} hrs</div>
+                      <div className="text-[11px] text-emerald-400 mt-1">Focus Logged</div>
+                    </div>
+                    <div className="bg-[#18181f] p-4 rounded-xl border border-white/5">
+                      <div className="text-xs text-gray-400">Distractions Blocked</div>
+                      <div className="text-2xl font-bold text-cyan-400 mt-1">{analytics.distractionsBlockedTotal} Videos</div>
+                      <div className="text-[11px] text-gray-400 mt-1">Skincare/Baking/Shorts</div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div className="bg-[#18181f] p-6 rounded-xl border border-emerald-500/30 text-center">
+                      <h3 className="font-bold text-sm text-emerald-400 mb-2">🎯 Pomodoro 25-Min Study Clock</h3>
+                      <div className="text-5xl font-mono font-black text-emerald-400 my-4 tracking-wider">
+                        {formatTime(timerSeconds)}
+                      </div>
+                      <div className="flex justify-center gap-3">
+                        <button 
+                          onClick={() => setTimerActive(!timerActive)}
+                          className={`px-6 py-2 rounded-full font-bold text-xs transition-all ${timerActive ? 'bg-gray-700 text-white' : 'bg-emerald-400 text-black hover:bg-emerald-300'}`}
+                        >
+                          {timerActive ? 'Pause' : 'Start Focus Clock'}
+                        </button>
+                        <button onClick={() => { setTimerActive(false); setTimerSeconds(25*60); }} className="px-4 py-2 bg-gray-800 rounded-full text-xs text-gray-300 hover:bg-gray-700">
+                          Reset
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+              ) : (
+                /* DYNAMIC HOME FEED GRID */
+                <div className="p-6 animate-fade-in">
+                  
+                  <div className={`p-4 rounded-xl border transition-colors ${isDateLocked ? 'bg-amber-500/10 border-amber-500/40' : studyMode ? 'bg-emerald-500/5 border-emerald-500/30' : 'bg-red-500/5 border-red-500/30'} mb-6 flex justify-between items-center`}>
+                    <div>
+                      <h2 className={`font-bold text-sm ${isDateLocked ? 'text-amber-400' : studyMode ? 'text-emerald-400' : 'text-red-500'}`}>
+                        {isDateLocked 
+                          ? `🔒 Strict Exam Date Lock Active (${selectedExam.toUpperCase()} Target: ${targetDate} • ${daysLeft} Days Remaining)` 
+                          : studyMode 
+                            ? `YouTube Study Mode Active (${selectedExam.toUpperCase()})` 
+                            : 'Normal Mode: Personal Watch History Bleed (Skincare, Baking, Beauty Pageants)'}
+                      </h2>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        {isDateLocked 
+                          ? `Study mode is strictly locked until your exam on ${targetDate}. Turning off Study mode is disabled to prevent distraction.` 
+                          : studyMode 
+                            ? 'Personal watch history distractions (Korean Glass Skincare, Baking cakes, Beauty pageants) are 100% filtered out by syllabus matching.' 
+                            : 'Standard YouTube algorithm bleeds personal watch history (Korean Glass Skincare, 3-Tier Chocolate Glaze Baking, Miss Universe Q&A) into your feed.'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* OFFICIAL YOUTUBE GRID LAYOUT */}
+                  <div className="yt-main-grid">
+                    {videos.map((video) => (
+                      <div key={video.id} className="flex flex-col group cursor-pointer animate-fade-in">
+                        
+                        <div className="yt-card-thumb relative w-full aspect-video rounded-xl overflow-hidden bg-[#18181f] mb-3" onClick={() => setActiveVideo(video)}>
+                          <img 
+                            src={video.thumbnail} 
+                            alt={video.title}
+                            className="w-full h-full object-cover rounded-xl" 
+                          />
+                          
+                          <span className="absolute bottom-1.5 right-1.5 bg-black/80 text-white text-[12px] font-medium px-1.5 py-0.5 rounded">
+                            {video.duration}
+                          </span>
+
+                          {video.isSyllabusAligned ? (
+                            <span className="absolute top-2 left-2 bg-emerald-500 text-slate-950 text-[11px] font-extrabold px-2.5 py-0.5 rounded-full shadow-md">
+                              ✨ High Syllabus Match
+                            </span>
+                          ) : (
+                            <span className="absolute top-2 left-2 bg-red-600 text-white text-[11px] font-extrabold px-2.5 py-0.5 rounded-full shadow-md">
+                              ⚠️ {video.biasType}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* METADATA */}
+                        <div className="flex gap-3">
+                          <img src={video.avatar} className="w-9 h-9 rounded-full object-cover flex-shrink-0" />
+                          
+                          <div className="flex-1 min-w-0">
+                            <h3 
+                              onClick={() => setActiveVideo(video)}
+                              className="text-[15px] font-medium text-[#f1f1f1] line-clamp-2 leading-[1.35] group-hover:text-emerald-400 transition-colors"
+                            >
+                              {video.title}
+                            </h3>
+
+                            <div className="text-[13px] text-[#aaa] mt-1 flex items-center gap-1">
+                              <span>{video.channel}</span>
+                              {video.isSyllabusAligned && (
+                                <svg className="w-3.5 h-3.5 text-emerald-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                              )}
+                            </div>
+
+                            <div className="text-[13px] text-[#aaa]">
+                              {video.views} • {video.timeAgo}
+                            </div>
+
+                            <div className="mt-2 flex items-center gap-3">
+                              <button onClick={() => setActiveVideo(video)} className="text-[11px] font-bold text-emerald-400 hover:underline">
+                                ▶️ Study View
+                              </button>
+                              <a 
+                                href={video.watchUrl} 
+                                target="_blank" 
+                                rel="noreferrer" 
+                                className="text-[11px] font-bold text-red-400 hover:underline flex items-center gap-0.5"
+                              >
+                                <span>YouTube ↗</span>
+                              </a>
+                            </div>
+
+                          </div>
+                        </div>
+
+                      </div>
+                    ))}
+                  </div>
+
+                </div>
+              )}
+
+            </main>
+
+          </div>
+
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
