@@ -3,7 +3,6 @@
 > **An AI & Machine Learning-Powered Desktop Feature Concept for YouTube to Eliminate Personal Watch History Bleed for Competitive Exam Aspirants.**
 
 📄 **[Read Full Product Requirement Document (PRD.md)](PRD.md)**  
-🌐 **Deployable to Vercel in 1-Click with Zero Configuration**
 
 ## 🚨 Problem Statement Overview
 
